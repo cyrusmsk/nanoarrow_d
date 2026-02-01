@@ -1,0 +1,1 @@
+https://willayd.com/comparing-cython-to-rust-evaluating-python-extensions.html

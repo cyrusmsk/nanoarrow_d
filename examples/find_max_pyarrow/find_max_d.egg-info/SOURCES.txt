@@ -1,0 +1,5 @@
+setup.py
+find_max_d.egg-info/PKG-INFO
+find_max_d.egg-info/SOURCES.txt
+find_max_d.egg-info/dependency_links.txt
+find_max_d.egg-info/top_level.txt

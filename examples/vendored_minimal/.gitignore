@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/vendored_minimal
+vendored_minimal.so
+vendored_minimal.dylib
+vendored_minimal.dll
+vendored_minimal.a
+vendored_minimal.lib
+vendored_minimal-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst

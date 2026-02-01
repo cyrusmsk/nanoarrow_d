@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/find_max_d
+find_max_d.so
+find_max_d.dylib
+find_max_d.dll
+find_max_d.a
+find_max_d.lib
+find_max_d-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst

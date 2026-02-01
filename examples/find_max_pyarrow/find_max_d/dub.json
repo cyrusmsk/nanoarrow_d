@@ -1,0 +1,86 @@
+{
+	"authors": [
+		"Dadoum",
+        "cyrusmsk"
+	],
+	"copyright": "Copyright © 2024, cyrusmsk",
+	"description": "Python bindings to find max in array",
+	"license": "MIT",
+	"name": "find_max_d",
+	"targetType": "dynamicLibrary",
+    "lflags-posix": ["-L/Users/cyrus_msk/.pyenv/versions/3.11.9/lib"],
+	"dependencies": {
+		"pyd": {
+			"repository": "git+https://github.com/Dadoum/pyd.git",
+			"version": "747fba00d2fad7e86b869212e1b5e2fccd498a8e"
+		},
+	},
+	"configurations": [
+		{
+			"name": "python33",
+			"subConfigurations": {
+				"pyd": "python33"
+			}
+		},
+		{
+			"name": "python34",
+			"subConfigurations": {
+				"pyd": "python34"
+			}
+		},
+		{
+			"name": "python35",
+			"subConfigurations": {
+				"pyd": "python35"
+			}
+		},
+		{
+			"name": "python36",
+			"subConfigurations": {
+				"pyd": "python36"
+			}
+		},
+		{
+			"name": "python37",
+			"subConfigurations": {
+				"pyd": "python37"
+			}
+		},
+		{
+			"name": "python38",
+			"subConfigurations": {
+				"pyd": "python38"
+			}
+		},
+		{
+			"name": "python39",
+			"subConfigurations": {
+				"pyd": "python39"
+			}
+		},
+		{
+			"name": "python310",
+			"subConfigurations": {
+				"pyd": "python310"
+			}
+		},
+		{
+			"name": "python311",
+			"subConfigurations": {
+				"pyd": "python311"
+			}
+		},
+		{
+			"name": "python312",
+			"subConfigurations": {
+				"pyd": "python312"
+			}
+		},
+		{
+			"name": "python313",
+			"subConfigurations": {
+				"pyd": "python313"
+			}
+		},
+	]
+}

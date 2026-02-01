@@ -1,0 +1,22 @@
+{
+	"authors": [
+		"Sergei Giniatulin"
+	],
+    "sourcePaths": ["source"],
+    "dflags-ldc": [
+        "lib/nanoarrow.c",
+        "-P-Ilib"
+    ],
+    "lflags-posix": [
+        "-L.",
+        "-L./source"
+    ],
+    "lflags-osx": [
+        "-rpath",
+        "@executable_path/"
+    ],
+	"copyright": "Copyright © 2025, Sergei Giniatulin",
+	"description": "Vendored minimal example of nanoarrow for D",
+	"license": "MIT",
+	"name": "vendored_minimal"
+}
