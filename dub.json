@@ -2,6 +2,7 @@
   "authors": ["Sergei Giniatulin"],
   "targetType": "library",
   "sourcePaths": ["source"],
+  "cSourcePaths": ["arrow_lib"],
   "dflags-ldc": ["-mcpu=native"],
   "lflags-osx": ["-rpath", "@executable_path/"],
   "copyright": "Copyright © 2024, Sergei Giniatulin",

@@ -268,8 +268,6 @@ pragma(inline, true) const(char)* ArrowTimeUnitString(ArrowTimeUnit time_unit)
     }
 }
 
-pragma(inline, true) ArrowStringView ArrowCharView(const(char)* value);
-
 pragma(inline, true) ArrowStringView ArrowCharView(const(char)* value)
 {
     ArrowStringView out_ = void;
