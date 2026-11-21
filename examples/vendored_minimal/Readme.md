@@ -7,7 +7,7 @@ dub run
 
 It should provide the result:
 ```bash
-Nanoarrow version: 0.7.0-SNAPSHOT
+Nanoarrow version: 0.9.0
 1
 2
 3

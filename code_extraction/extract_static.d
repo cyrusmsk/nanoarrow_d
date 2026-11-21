@@ -64,3 +64,4 @@ void main(string[] args)
     {
         writeln("Failed to write file: ", e.msg);
     }
+}

@@ -4,6 +4,6 @@
   "dependencies": { "nanoarrow_d": { "path": "../../" } },
   "copyright": "Copyright © 2026, Sergei Giniatulin",
   "description": "Vendored minimal example of nanoarrow for D",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "name": "vendored_minimal"
 }

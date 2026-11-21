@@ -2,11 +2,13 @@
   "authors": ["Sergei Giniatulin"],
   "targetType": "library",
   "sourcePaths": ["source"],
+  "importPaths": ["source"],
   "cSourcePaths": ["arrow_lib"],
-  "dflags-ldc": ["-mcpu=native"],
   "lflags-osx": ["-rpath", "@executable_path/"],
   "copyright": "Copyright © 2024, Sergei Giniatulin",
-  "description": "Nanoarrow binding for D",
-  "license": "MIT",
-  "name": "nanoarrow_d"
+  "description": "D bindings for nanoarrow",
+  "homepage": "https://github.com/apache/arrow-nanoarrow",
+  "license": "Apache-2.0",
+  "name": "nanoarrow_d",
+  "version": "0.9.0"
 }

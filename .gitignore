@@ -20,5 +20,9 @@ docs.json
 __dummy.html
 docs/
 
+# Meson / Xmake
+build/
+.xmake/
+
 # Code coverage
 *.lst

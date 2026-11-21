@@ -245,7 +245,7 @@ pragma(inline, true) const(char)* ArrowTypeString(ArrowType type)
     case NANOARROW_TYPE_LARGE_LIST_VIEW:
         return "large_list_view";
     default:
-        return null;
+        return "<unknown type identifier>";
     }
 }
 
@@ -289,6 +289,14 @@ pragma(inline, true) void ArrowIntervalInit(ArrowInterval* interval, ArrowType t
 {
     memset(interval, 0, ArrowInterval.sizeof);
     interval.type = type;
+}
+
+pragma(inline, true) byte _ArrowIsLittleEndian()
+{
+    uint check = 1;
+    byte first_byte = void;
+    memcpy(&first_byte, &check, byte.sizeof);
+    return first_byte;
 }
 
 pragma(inline, true) void ArrowDecimalInit(ArrowDecimal* decimal, int bitwidth, int precision, int scale)
@@ -1845,7 +1853,7 @@ pragma(inline, true) void ArrowBitsSetTo(ubyte* bits, long start_offset, long le
     if (bytes_end - bytes_begin > 2)
     {
         // set/clear whole bytes
-        memset(bits + bytes_begin + 1, fill_byte, cast(size_t)(bytes_end - bytes_begin - 2));
+        memset(bits + bytes_begin + 1, fill_byte, cast(object.size_t)(bytes_end - bytes_begin - 2));
     }
 
     if (i_end % 8 == 0)
@@ -2110,8 +2118,30 @@ pragma(inline, true) ArrowBuffer* ArrowArrayBuffer(ArrowArray* array, long i)
     {
     case 0:
         return &private_data.bitmap.buffer;
+    case 1:
+        return private_data.buffers.ptr;
     default:
-        return private_data.buffers.ptr + i - 1;
+        if (array.n_buffers > 3 && i == (array.n_buffers - 1))
+        {
+            // The variadic buffer sizes buffer for a BinaryView/String view array
+            // is always stored in private_data->buffers[1]; however, from the numbered
+            // buffers perspective this is the array->buffers[array->n_buffers - 1].
+            return private_data.buffers.ptr + 1;
+        }
+        else if (array.n_buffers > 3)
+        {
+            // If there are one or more variadic buffers, they are stored in
+            // private_data->variadic_buffers
+            return private_data.variadic_buffers + (i - 2);
+        }
+        else
+        {
+            // Otherwise, we're just accessing buffer at index 2 (e.g., String/Binary
+            // data buffer or variadic sizes buffer for the case where there are no
+            // variadic buffers)
+            assert(i == 2);
+            return private_data.buffers.ptr + i - 1;
+        }
     }
 }
 
@@ -2688,10 +2718,10 @@ pragma(inline, true) int ArrowArrayVariadicBufferCount(ArrowArray* array)
 }
 
 pragma(inline, true) ArrowErrorCode ArrowArrayAddVariadicBuffers(
-    ArrowArray* array, int nbuffers)
+    ArrowArray* array, int n_buffers)
 {
     const(int) n_current_bufs = ArrowArrayVariadicBufferCount(array);
-    const(int) nvariadic_bufs_needed = n_current_bufs + nbuffers;
+    const(int) nvariadic_bufs_needed = n_current_bufs + n_buffers;
 
     ArrowArrayPrivateData* private_data = cast(ArrowArrayPrivateData*) array.private_data;
 
@@ -2701,21 +2731,153 @@ pragma(inline, true) ArrowErrorCode ArrowArrayAddVariadicBuffers(
     {
         return nanoarrow.ENOMEM;
     }
-    private_data.variadic_buffer_sizes = cast(long*) ArrowRealloc(
-        private_data.variadic_buffer_sizes, long.sizeof * nvariadic_bufs_needed);
-    if (private_data.variadic_buffer_sizes == null)
-    {
-        return nanoarrow.ENOMEM;
-    }
+
+    private_data.n_variadic_buffers = nvariadic_bufs_needed;
+    array.n_buffers = NANOARROW_BINARY_VIEW_FIXED_BUFFERS + 1 + nvariadic_bufs_needed;
+
+    private_data.buffer_data = cast(const(void)**) ArrowRealloc(
+        private_data.buffer_data, array.n_buffers * (void*).sizeof);
 
     for (int i = n_current_bufs; i < nvariadic_bufs_needed; i++)
     {
         ArrowBufferInit(&private_data.variadic_buffers[i]);
-        private_data.variadic_buffer_sizes[i] = 0;
+        private_data.buffer_data[NANOARROW_BINARY_VIEW_FIXED_BUFFERS + i] = null;
     }
-    private_data.n_variadic_buffers = nvariadic_bufs_needed;
-    array.n_buffers = NANOARROW_BINARY_VIEW_FIXED_BUFFERS + 1 + nvariadic_bufs_needed;
 
+    // Zero out memory for the final buffer (variadic sizes buffer we haven't built yet)
+    private_data.buffer_data[NANOARROW_BINARY_VIEW_FIXED_BUFFERS + nvariadic_bufs_needed] = null;
+
+    // Ensure array->buffers points to a valid value
+    array.buffers = private_data.buffer_data;
+
+    return NANOARROW_OK;
+}
+
+pragma(inline, true) ArrowErrorCode ArrowArrayAppendBytes(
+    ArrowArray* array, ArrowBufferView value)
+{
+    ArrowArrayPrivateData* private_data = cast(ArrowArrayPrivateData*) array.private_data;
+
+    if (private_data.storage_type == NANOARROW_TYPE_STRING_VIEW ||
+        private_data.storage_type == NANOARROW_TYPE_BINARY_VIEW)
+    {
+        ArrowBuffer* data_buffer = ArrowArrayBuffer(array, 1);
+        ArrowBinaryView bvt = void;
+        bvt.inlined.size = cast(int) value.size_bytes;
+
+        if (value.size_bytes <= NANOARROW_BINARY_VIEW_INLINE_SIZE)
+        {
+            memcpy(bvt.inlined.data.ptr, value.data.as_char, value.size_bytes);
+            memset(bvt.inlined.data.ptr + bvt.inlined.size, 0,
+                NANOARROW_BINARY_VIEW_INLINE_SIZE - bvt.inlined.size);
+        }
+        else
+        {
+            int current_n_vbufs = ArrowArrayVariadicBufferCount(array);
+            if (current_n_vbufs == 0 ||
+                private_data.variadic_buffers[current_n_vbufs - 1].size_bytes +
+                    value.size_bytes >
+                NANOARROW_BINARY_VIEW_BLOCK_SIZE)
+            {
+                const(int) additional_bufs_needed = 1;
+                auto s = returnNotOk(
+                    ArrowArrayAddVariadicBuffers(array, additional_bufs_needed));
+                if (s != NANOARROW_OK)
+                    return s;
+                current_n_vbufs += additional_bufs_needed;
+            }
+
+            const(int) buf_index = current_n_vbufs - 1;
+            ArrowBuffer* variadic_buf = &private_data.variadic_buffers[buf_index];
+            // Note: union member is named `ref` in C, which is a D keyword;
+            // access it via a pointer cast instead of `bvt.ref`.
+            ArrowBinaryViewRef* bvt_ref = cast(ArrowBinaryViewRef*) &bvt;
+            memcpy(bvt_ref.prefix.ptr, value.data.as_char, NANOARROW_BINARY_VIEW_PREFIX_SIZE);
+            bvt_ref.buffer_index = buf_index;
+            bvt_ref.offset = cast(int) variadic_buf.size_bytes;
+            auto s = returnNotOk(
+                ArrowBufferAppend(variadic_buf, value.data.as_char, value.size_bytes));
+            if (s != NANOARROW_OK)
+                return s;
+        }
+        auto s = returnNotOk(ArrowBufferAppend(data_buffer, &bvt, ArrowBinaryView.sizeof));
+        if (s != NANOARROW_OK)
+            return s;
+    }
+    else
+    {
+        ArrowBuffer* offset_buffer = ArrowArrayBuffer(array, 1);
+        ArrowBuffer* data_buffer = ArrowArrayBuffer(array,
+            1 + (private_data.storage_type != NANOARROW_TYPE_FIXED_SIZE_BINARY ? 1 : 0));
+        int offset;
+        long large_offset;
+        long fixed_size_bytes = private_data.layout.element_size_bits[1] / 8;
+
+        switch (private_data.storage_type)
+        {
+        case NANOARROW_TYPE_STRING:
+        case NANOARROW_TYPE_BINARY:
+            {
+                offset = (cast(int*) offset_buffer.data)[array.length];
+                if ((cast(long) offset + value.size_bytes) > int.max)
+                {
+                    return nanoarrow.EOVERFLOW;
+                }
+
+                offset += cast(int) value.size_bytes;
+                auto s = returnNotOk(
+                    ArrowBufferAppend(offset_buffer, &offset, int.sizeof));
+                if (s != NANOARROW_OK)
+                    return s;
+                s = returnNotOk(
+                    ArrowBufferAppend(data_buffer, value.data.data, value.size_bytes));
+                if (s != NANOARROW_OK)
+                    return s;
+                break;
+            }
+
+        case NANOARROW_TYPE_LARGE_STRING:
+        case NANOARROW_TYPE_LARGE_BINARY:
+            {
+                large_offset = (cast(long*) offset_buffer.data)[array.length];
+                large_offset += value.size_bytes;
+                auto s = returnNotOk(
+                    ArrowBufferAppend(offset_buffer, &large_offset, long.sizeof));
+                if (s != NANOARROW_OK)
+                    return s;
+                s = returnNotOk(
+                    ArrowBufferAppend(data_buffer, value.data.data, value.size_bytes));
+                if (s != NANOARROW_OK)
+                    return s;
+                break;
+            }
+
+        case NANOARROW_TYPE_FIXED_SIZE_BINARY:
+            {
+                if (value.size_bytes != fixed_size_bytes)
+                {
+                    return nanoarrow.EINVAL;
+                }
+
+                auto s = returnNotOk(
+                    ArrowBufferAppend(data_buffer, value.data.data, value.size_bytes));
+                if (s != NANOARROW_OK)
+                    return s;
+                break;
+            }
+        default:
+            return nanoarrow.EINVAL;
+        }
+    }
+
+    if (private_data.bitmap.buffer.data != null)
+    {
+        auto s = returnNotOk(ArrowBitmapAppend(ArrowArrayValidityBitmap(array), 1, 1));
+        if (s != NANOARROW_OK)
+            return s;
+    }
+
+    array.length++;
     return NANOARROW_OK;
 }
 
@@ -3110,6 +3272,38 @@ pragma(inline, true) ArrowBufferView ArrowArrayViewGetBufferView(
     }
 }
 
+pragma(inline, true) ArrowBufferType ArrowArrayViewGetBufferType(
+    ArrowArrayView* array_view, long i)
+{
+    switch (array_view.storage_type)
+    {
+    case NANOARROW_TYPE_BINARY_VIEW:
+    case NANOARROW_TYPE_STRING_VIEW:
+        if (i < NANOARROW_BINARY_VIEW_FIXED_BUFFERS)
+        {
+            return array_view.layout.buffer_type[i];
+        }
+        else if (i ==
+            (array_view.n_variadic_buffers + NANOARROW_BINARY_VIEW_FIXED_BUFFERS))
+        {
+            return NANOARROW_BUFFER_TYPE_VARIADIC_SIZE;
+        }
+        else
+        {
+            return NANOARROW_BUFFER_TYPE_VARIADIC_DATA;
+        }
+    default: // We need this check to avoid -Warray-bounds from complaining
+        if (i >= NANOARROW_MAX_FIXED_BUFFERS)
+        {
+            return NANOARROW_BUFFER_TYPE_NONE;
+        }
+        else
+        {
+            return array_view.layout.buffer_type[i];
+        }
+    }
+}
+
 pragma(inline, true) ArrowType ArrowArrayViewGetBufferDataType(
     ArrowArrayView* array_view, long i)
 {
@@ -3270,6 +3464,7 @@ pragma(inline, true) long ArrowArrayViewListChildOffset(
     switch (array_view.storage_type)
     {
     case NANOARROW_TYPE_LIST:
+    case NANOARROW_TYPE_MAP:
     case NANOARROW_TYPE_LIST_VIEW:
         return array_view.buffer_views[1].data.as_int32[i];
     case NANOARROW_TYPE_LARGE_LIST:
@@ -3392,6 +3587,27 @@ pragma(inline, true) double ArrowArrayViewGetDoubleUnsafe(
     }
 }
 
+pragma(inline, true) ArrowBufferView ArrowArrayViewGetBytesFromViewArrayUnsafe(
+    const(ArrowArrayView)* array_view, long i)
+{
+    const(ArrowBinaryView)* bv = &array_view.buffer_views[1].data.as_binary_view[i];
+    ArrowBufferView out_ = void;
+    out_.data.data = null;
+    out_.size_bytes = bv.inlined.size;
+    if (bv.inlined.size <= NANOARROW_BINARY_VIEW_INLINE_SIZE)
+    {
+        out_.data.as_uint8 = cast(ubyte*) bv.inlined.data.ptr;
+        return out_;
+    }
+
+    // Note: union member is named `ref` in C, which is a D keyword;
+    // access it via a pointer cast instead of `bv.ref`.
+    const(ArrowBinaryViewRef)* bvt_ref = cast(const(ArrowBinaryViewRef)*) bv;
+    out_.data.data = cast(void*) array_view.variadic_buffers[bvt_ref.buffer_index];
+    out_.data.as_uint8 = out_.data.as_uint8 + bvt_ref.offset;
+    return out_;
+}
+
 pragma(inline, true) ArrowStringView ArrowArrayViewGetStringUnsafe(
     ArrowArrayView* array_view, long i)
 {
@@ -3489,20 +3705,20 @@ pragma(inline, true) void ArrowArrayViewGetIntervalUnsafe(
     {
     case NANOARROW_TYPE_INTERVAL_MONTHS:
         {
-            const(size_t) size = int.sizeof;
+            const(object.size_t) size = int.sizeof;
             memcpy(&out_.months, data_view + index * size, int.sizeof);
             break;
         }
     case NANOARROW_TYPE_INTERVAL_DAY_TIME:
         {
-            const(size_t) size = int.sizeof + int.sizeof;
+            const(object.size_t) size = int.sizeof + int.sizeof;
             memcpy(&out_.days, data_view + index * size, int.sizeof);
             memcpy(&out_.ms, data_view + index * size + 4, int.sizeof);
             break;
         }
     case NANOARROW_TYPE_INTERVAL_MONTH_DAY_NANO:
         {
-            const(size_t) size = int.sizeof + int.sizeof + long.sizeof;
+            const(object.size_t) size = int.sizeof + int.sizeof + long.sizeof;
             memcpy(&out_.months, data_view + index * size, int.sizeof);
             memcpy(&out_.days, data_view + index * size + 4, int.sizeof);
             memcpy(&out_.ns, data_view + index * size + 8, long.sizeof);
