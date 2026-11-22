@@ -9,6 +9,5 @@
   "description": "D bindings for nanoarrow",
   "homepage": "https://github.com/apache/arrow-nanoarrow",
   "license": "Apache-2.0",
-  "name": "nanoarrow_d",
-  "version": "0.9.0"
+  "name": "nanoarrow_d"
 }
